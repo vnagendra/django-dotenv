@@ -111,6 +111,22 @@ class ParseDotenvTestCase(unittest.TestCase):
         env = parse_dotenv('foo="ba#r"')
         self.assertEqual(parse_dotenv("foo='ba#r'"), {'foo': 'ba#r'})
 
+    def test_source_env_absolute(self):
+        fname = '.envrc.local'
+        env = parse_dotenv(f'[[ -f {fname} ]] && source_env {fname}')
+        self.assertEqual(env, {'source_env': ['.envrc.local']})
+
+    def test_source_env_relative(self):
+        fname = '~/.envrc.user'
+        env = parse_dotenv(f'[[ -f {fname} ]] && source_env {fname}')
+        self.assertEqual(env, {
+            'source_env': [f'{os.path.expanduser(fname)}']
+        })
+
+    def test_replaces_from_previous_value(self):
+        env = parse_dotenv('foo=bar\nbaz=$foo')
+        self.assertEqual(env, {'foo': 'bar', 'baz': 'bar'})
+
 
 class ReadDotenvTestCase(unittest.TestCase):
     def test_defaults_to_dotenv(self):

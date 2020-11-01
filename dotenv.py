@@ -4,7 +4,7 @@ import sys
 import warnings
 
 
-__version__ = '1.4.2'
+__version__ = '1.4.3'
 
 
 line_re = re.compile(r"""
@@ -33,6 +33,8 @@ variable_re = re.compile(r"""
     )                   # braces end
 """, re.IGNORECASE | re.VERBOSE)
 
+overrides = ('source_env', 'source_up')
+
 
 def read_dotenv(dotenv=None, override=False):
     """
@@ -55,11 +57,19 @@ def read_dotenv(dotenv=None, override=False):
 
     if os.path.exists(dotenv):
         with open(dotenv) as f:
-            for k, v in parse_dotenv(f.read()).items():
+            env = parse_dotenv(f.read())
+            for k, v in env.items():
+                if k in overrides:
+                    continue
                 if override:
                     os.environ[k] = v
                 else:
                     os.environ.setdefault(k, v)
+            for k, v in env.items():
+                if k not in overrides:
+                    continue
+                for fname in v:
+                    read_dotenv(fname, override)
     else:
         warnings.warn("Not reading {0} - it doesn't exist.".format(dotenv),
                       stacklevel=2)
@@ -67,6 +77,22 @@ def read_dotenv(dotenv=None, override=False):
 
 def parse_dotenv(content):
     env = {}
+
+    def replace(variable):
+        """Substitute variables in a value either from `os.environ` or
+        from previously declared variable that is still in our `env`"""
+        for parts in variable_re.findall(variable):
+            if parts[0] == '\\':
+                # Variable is escaped, don't replace it
+                replaced = ''.join(parts[1:-1])
+            else:
+                # Replace it with the value from the environment
+                replacement = os.environ.get(parts[-1])
+                if not replacement:
+                    replacement = env.get(parts[-1], '')
+                replaced = env.get(parts[-1], replacement)
+            variable = variable.replace(''.join(parts[0:-1]), replaced)
+        return variable
 
     for line in content.splitlines():
         m1 = line_re.search(line)
@@ -93,26 +119,31 @@ def parse_dotenv(content):
                 value = re.sub(r'\\([^$])', r'\1', value)
 
             if quotemark != "'":
-                # Substitute variables in a value
-                for parts in variable_re.findall(value):
-                    if parts[0] == '\\':
-                        # Variable is escaped, don't replace it
-                        replace = ''.join(parts[1:-1])
-                    else:
-                        # Replace it with the value from the environment
-                        replace = env.get(
-                            parts[-1],
-                            os.environ.get(parts[-1], '')
-                        )
-
-                    value = value.replace(''.join(parts[0:-1]), replace)
+                value = replace(value)
 
             env[key] = value
 
         elif not re.search(r'^\s*(?:#.*)?$', line):  # not comment or blank
-            warnings.warn(
-                "Line {0} doesn't match format".format(repr(line)),
-                SyntaxWarning
-            )
+
+            fname = None
+            for prefix in overrides:
+                if prefix not in line:
+                    continue
+                fname = line.split(prefix)[-1].strip()
+                fname = replace(fname)
+                if fname.startswith('~'):
+                    fname = os.path.expanduser(fname)
+                exists = env.get(prefix)
+                if not exists:
+                    exists = [fname, ]
+                else:
+                    exists.append(fname)
+                env[prefix] = exists
+                break
+            if not fname:
+                warnings.warn(
+                    "Line {0} doesn't match format".format(repr(line)),
+                    SyntaxWarning
+                )
 
     return env
