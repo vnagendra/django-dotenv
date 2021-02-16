@@ -33,7 +33,7 @@ variable_re = re.compile(r"""
     )                   # braces end
 """, re.IGNORECASE | re.VERBOSE)
 
-overrides = ('source_env', 'source_up')
+overrides = ('source_env', 'source_up', 'source_env_if_exists')
 
 
 def read_dotenv(dotenv=None, override=False):
